@@ -1,0 +1,12 @@
+Assets/TilePallet/paleta2.prefab filter=lfs diff=lfs merge=lfs -text
+Assents/TilePallet/paleta[[:space:]]2.prefab.meta filter=lfs diff=lfs merge=lfs -text
+Assents/TilePallet/paleta[[:space:]]3.prefab filter=lfs diff=lfs merge=lfs -text
+Assets/TilePallet/paleta[[:space:]]3.prefab.meta filter=lfs diff=lfs merge=lfs -text
+Assets/TilePallet/paleta[[:space:]]4.prefab filter=lfs diff=lfs merge=lfs -text
+Assets/TilePallet/paleta[[:space:]]4.prefab.meta filter=lfs diff=lfs merge=lfs -text
+Assets/TilePallet/paleta[[:space:]]5.prefab filter=lfs diff=lfs merge=lfs -text
+Assets/TilePallet/paleta[[:space:]]5.prefab.meta filter=lfs diff=lfs merge=lfs -text
+Assets/TilePallet/paleta[[:space:]]6.prefab filter=lfs diff=lfs merge=lfs -text
+Assets/TilePallet/paleta[[:space:]]6.prefab.meta filter=lfs diff=lfs merge=lfs -text
+Assets/UniversalRenderPipelineGlobalSettings.asset filter=lfs diff=lfs merge=lfs -text
+Assets/UniversalRenderPipelineGlobalSettings.asset.meta filter=lfs diff=lfs merge=lfs -text
