@@ -9,15 +9,15 @@ public class Controlapersonagem : MonoBehaviour
     [SerializeField] private Rigidbody2D rb;
     public Transform Tran;
     private Vector3 Escala = new Vector3(1,1,1);
-    private int DanoDoAtaque;
-    private int minDamege = 1;
-    private int maxDamege = 10;
+    //private int DanoDoAtaque;
+    //private int minDamege = 1;
+    //private int maxDamege = 10;
     public float attackCooldown = 0.3f;
-    private bool canAttack = true;
+    //private bool canAttack = true;
     public float moveX;
     public bool PtaParado = true;
     private BoxCollider2D Bc;
-    private int Vidas = 3;
+    //private int Vidas = 3;
     private ControlaInimigo ControlaInimigo;
 
     void Start()
@@ -102,9 +102,4 @@ public class Controlapersonagem : MonoBehaviour
         yield return new WaitForSeconds(0.4f);
         Bc.enabled = true;
     }*/
-
-    private void OnTriggerStay2D(Collider2D collision)
-    {
-       
-    }
 }
