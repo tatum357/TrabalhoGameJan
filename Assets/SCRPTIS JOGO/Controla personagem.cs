@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using Unity.VisualScripting;
 using UnityEngine;
 
 public class Controlapersonagem : MonoBehaviour
@@ -19,12 +20,14 @@ public class Controlapersonagem : MonoBehaviour
     private BoxCollider2D Bc;
     //private int Vidas = 3;
     private ControlaInimigo ControlaInimigo;
+    private SistemaControl Teleporte;
 
     void Start()
     {
         Anim = GetComponent<Animator>();
         Bc = GetComponent<BoxCollider2D>();
         ControlaInimigo = FindAnyObjectByType<ControlaInimigo>();
+        Teleporte = FindAnyObjectByType<SistemaControl>();
     }
 
     // Update is called once per frame

@@ -1,0 +1,54 @@
+using UnityEngine;
+
+public class ControladorInteracao : MonoBehaviour
+{
+    public GameObject botaoInteracao;
+    public Transform jogador;
+
+    public Vector3 deslocamento = new Vector3(1f, 0.5f, 0f);
+
+    private bool podeInteragir = false;
+
+    void Start()
+    {
+        if (botaoInteracao != null)
+        {
+            botaoInteracao.SetActive(false);
+        }
+    }
+
+    void Update()
+    {
+        if (podeInteragir && jogador != null && botaoInteracao != null)
+        {
+            // Mantém o botão ao lado do jogador
+            botaoInteracao.transform.position = jogador.position + deslocamento;
+
+            // Verifica se o jogador pressionou a tecla E
+            if (Input.GetKeyDown(KeyCode.E))
+            {
+                Debug.Log("Tecla E pressionada! Interação acionada.");
+            }
+        }
+    }
+
+    public void MostrarBotao()
+    {
+        podeInteragir = true;
+
+        if (botaoInteracao != null)
+        {
+            botaoInteracao.SetActive(true);
+        }
+    }
+
+    public void EsconderBotao()
+    {
+        podeInteragir = false;
+
+        if (botaoInteracao != null)
+        {
+            botaoInteracao.SetActive(false);
+        }
+    }
+}

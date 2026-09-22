@@ -5,11 +5,14 @@ TagManager:
   serializedVersion: 2
   tags:
   - ArmaInimigo
+  - PortaCozinha
+  - PortaRestaurante
+  - Player
   layers:
   - Default
   - TransparentFX
   - Ignore Raycast
-  - 
+  - Transition
   - Water
   - UI
   - 
@@ -50,4 +53,7 @@ TagManager:
     locked: 0
   - name: player
     uniqueID: 3147675417
+    locked: 0
+  - name: Transitions
+    uniqueID: 1057189935
     locked: 0
