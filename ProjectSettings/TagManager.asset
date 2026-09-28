@@ -9,6 +9,9 @@ TagManager:
   - PortaRestaurante
   - Player
   - objetoIteragivel
+  - chefe
+  - faxineiro
+  - garçon
   layers:
   - Default
   - TransparentFX

@@ -45,7 +45,7 @@ public class MenuSistema : MonoBehaviour
     private void Update()
     {
         // Esc abre/fecha as opcoes. E agora e do minigame (nao abre menu com E)
-        if (Input.GetKeyDown(KeyCode.Escape) && !MinigameCozinha.JogoAberto)
+        if (Input.GetKeyDown(KeyCode.Escape) && !MinigameCozinha.JogoAberto && !GerenciadorTarefas.Aberto)
             Alternar();
     }
 

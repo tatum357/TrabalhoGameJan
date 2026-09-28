@@ -1,4 +1,17 @@
+using System.Collections.Generic;
 using UnityEngine;
+
+// GERENCIADOR UNICO DE INTERACOES - coloque em um objeto VAZIO da cena.
+//
+// JOGADOR: a "esfera" (raio) gira em torno do objeto "Body" dentro do player.
+//   Quando um objeto com a TAG "objetoIteragivel" entrar dentro dela, a
+//   interacao e ativada (botao aparece + tecla E abre o minigame).
+//
+// NPCs: quando um NPC (componente "garson") chega perto de um objeto com a
+//   tag, o controlador chama npc.fazerTarefas(status) e pega o resultado
+//   (bool DeuCerto) em DeuCertoNPC.
+//
+// Os objetos interativos NAO precisam de script: Collider2D + essa tag.
 public class ControladorInteracao : MonoBehaviour
 {
     [Header("Referencias")]
@@ -17,6 +30,17 @@ public class ControladorInteracao : MonoBehaviour
     [Tooltip("Congela deteccao e tecla E com o menu ou o minigame abertos")]
     public bool bloquearComPaineisAbertos = true;
 
+    [Header("Tarefas dos NPCs")]
+    [Tooltip("Status usado quando o NPC interage (nome do case do fazerTarefas)")]
+    public string statusTarefaNPC = "manusear";
+    [Tooltip("Detecta NPCs (componente 'garson') perto dos objetos sozinho")]
+    public bool detectarNPCs = true;
+    [Tooltip("Resultado da ultima tarefa (copiado do DeuCerto do NPC)")]
+    public bool DeuCertoNPC;
+    [Tooltip("Ultimo NPC / objeto que interagiram")]
+    public garson ultimoNPC;
+    public GameObject ultimoObjeto;
+
     // Objeto interativo mais proximo dentro da esfera (para usar em codigo)
     public GameObject ObjetoAtual { get; private set; }
 
@@ -24,6 +48,11 @@ public class ControladorInteracao : MonoBehaviour
     private bool tagValida = true;
     private Transform corpoPlayer;   // objeto "Body" dentro do player (pivo do circulo)
     private bool corpoAvisado = false;
+
+    // NPCs ja vistos perto de cada objeto (dispara so na entrada)
+    private readonly Dictionary<garson, GameObject> npcProximo = new Dictionary<garson, GameObject>();
+    private float cronometroNPCs = 0f;
+    private const float INTERVALO_CHECAGEM_NPC = 0.5f;
 
     private void Start()
     {
@@ -50,12 +79,16 @@ public class ControladorInteracao : MonoBehaviour
             if (jogador == null) return;
         }
 
-        // Com menu/minigame abertos, nao detecta nem usa o E
-        if (bloquearComPaineisAbertos && (MinigameCozinha.JogoAberto || MenuSistema.MenuAberto))
+        // Com menu/minigame/gerenciamento abertos, nao detecta nem usa o E
+        if (bloquearComPaineisAbertos && (MinigameCozinha.JogoAberto || MenuSistema.MenuAberto || GerenciadorTarefas.Aberto))
             return;
 
         if (deteccaoAutomatica)
             AtualizarDeteccao();
+
+        // Tarefas dos NPCs (pausam junto com o menu, por estar apos o bloqueio)
+        if (detectarNPCs)
+            AtualizarNPCs();
 
         // Mantem o botao ao lado do jogador
         if (podeInteragir && botaoInteracao != null)
@@ -97,6 +130,92 @@ public class ControladorInteracao : MonoBehaviour
         // Dentro da esfera com a tag -> interacao ativada; saiu -> desativada
         if (novo != null) MostrarBotao();
         else EsconderBotao();
+    }
+
+    // ===============================================================
+    //  INTERACAO DOS NPCs
+    //  Procura NPCs (componente "garson") perto de um objeto com a tag.
+    //  Quando o NPC CHEGA perto, chama npc.fazerTarefas(...) e pega o
+    //  resultado (bool DeuCerto) em DeuCertoNPC. Dispara so na entrada
+    //  (quando sai de perto, rearma para a proxima vez).
+    // ===============================================================
+    private void AtualizarNPCs()
+    {
+        if (!tagValida) return;
+
+        // Checa em intervalos para nao varrer a cena toda quadro
+        cronometroNPCs -= Time.deltaTime;
+        if (cronometroNPCs > 0f) return;
+        cronometroNPCs = INTERVALO_CHECAGEM_NPC;
+
+        foreach (garson npc in FindObjectsByType<garson>(FindObjectsSortMode.None))
+        {
+            if (npc == null) continue;
+
+            GameObject objeto = EncontrarObjetoPerto(npc.transform.position);
+            npcProximo.TryGetValue(npc, out GameObject anterior);
+
+            if (objeto == anterior) continue; // nada mudou desde a ultima checagem
+
+            if (objeto != null)
+            {
+                // NPC chegou perto do objeto: faz a tarefa e pega o resultado
+                npcProximo[npc] = objeto;
+                InteragirNPC(npc, statusTarefaNPC, objeto);
+            }
+            else
+            {
+                // NPC saiu de perto: rearma a tarefa para a proxima chegada
+                npcProximo.Remove(npc);
+            }
+        }
+    }
+
+    // Objeto "objetoIteragivel" mais proximo de uma posicao (ou null)
+    private GameObject EncontrarObjetoPerto(Vector3 posicao)
+    {
+        GameObject melhor = null;
+        float melhorDistancia = float.MaxValue;
+
+        Collider2D[] encontrados = Physics2D.OverlapCircleAll(posicao, raio);
+        foreach (Collider2D col in encontrados)
+        {
+            if (col == null) continue;
+            if (!col.CompareTag(tagObjeto)) continue;
+
+            float distancia = Vector2.Distance(posicao, col.transform.position);
+            if (distancia < melhorDistancia)
+            {
+                melhorDistancia = distancia;
+                melhor = col.gameObject;
+            }
+        }
+
+        return melhor;
+    }
+
+    // Chamado pela deteccao automatica OU por voce, quando um NPC interage
+    // com o objeto: roda o fazerTarefas do NPC e pega o bool DeuCerto.
+    // Ex.: InteragirNPC(meunpc, "grelha", mesa);
+    public bool InteragirNPC(garson npc, string statusTarefa, GameObject objeto = null)
+    {
+        if (npc == null)
+        {
+            Debug.LogWarning("[Interacao] InteragirNPC chamado sem NPC.");
+            DeuCertoNPC = false;
+            return false;
+        }
+
+        npc.fazerTarefas(statusTarefa);  // switch + sorteio la no script do NPC
+        DeuCertoNPC = npc.DeuCerto;      // pega o resultado da tarefa
+
+        ultimoNPC = npc;
+        ultimoObjeto = objeto;
+
+        Debug.Log("[Interacao] NPC '" + npc.name + "' fez a tarefa '" + statusTarefa +
+                  "' (Starefa = " + npc.Starefa + ") -> DeuCerto: " + DeuCertoNPC);
+
+        return DeuCertoNPC;
     }
 
     // Pivo do circulo: o objeto "Body" dentro do player (procura tambem nos filhos
