@@ -2,6 +2,7 @@
 using System.Collections;
 using UnityEngine;
 using System.Collections.Generic;
+using UnityEngine.AI;
 
 public class garson : MonoBehaviour
 {
@@ -28,15 +29,13 @@ public class garson : MonoBehaviour
     [Header("Status do NPC")]
     public Status status = new Status();
 
-    // Destino mandado pelo player (tela de gerenciamento).
-    // Nao existe patrulha: sem ordem o NPC fica em idle.
+    [Header("Patrulha")]
+    public Vector2[] patrolpoint;
+    private int currentPatrolIndex;
     private Vector2 target;
-
-    [Header("Movimento")]
-    [Tooltip("Velocidade de andar ate o destino mandado")]
-    public float velocidade = 2;
-    [Tooltip("Tempo calculado pelos controllers de papel (chefe/faxineiro/garcom)")]
     public float pausa = 1.5f;
+    private bool inpause;
+    public float velocidade = 2;
 
     // Tags que definem o papel do NPC (criadas em Project Settings > Tags)
     private const string TAG_CHEFE = "chefe";
@@ -55,22 +54,42 @@ public class garson : MonoBehaviour
     public bool DeuCerto;   // resultado da chance (true = acertou)
 
     [Header("Tarefas enviadas pelo player")]
-    public bool sobControle = false;   // true = vai pro destino mandado; senao fica em idle
+    public bool sobControle = false;   // true = segue o destino mandado, nao a patrulha
     public bool chegou = false;        // vira true quando chega no destino mandado
-    private bool mostreiIdle;          // controla tocar a anim de idle so uma vez
 
     [Header("Colisao")]
     [Tooltip("Se marcado, o jogador atravessa a 'esfera' deste NPC (o mundo continua bloqueando)")]
     public bool jogadorAtravessa = true;
 
-    private bool colisaoAplicada;      // true quando o player ja foi ignorado (ou nao ha o que fazer)
-    private float cronometroColisao;   // espera entre tentativas de ignorar a colisao
+    [Header("NavMesh")]
+    [Tooltip("Se marcado, o NPC vai aos pontos mandados pelo player pelo NavMesh (NavMech2D), contornando os obstaculos. Sem NavMesh pronto, ele faz o movimento reto de sempre")]
+    public bool usarNavMesh = true;
+
+    private Coroutine rotinaPatrulha;
+
+    private NavMeshAgent agente;
+    private bool usandoNavMesh;       // esta indo pro destino pelo NavMesh agora
+    private bool destinoNavPendente;  // tem destino novo a mandar pro agente
+    private Vector2 ultimoDestinoNav;
+    private bool avisoNavDado;        // aviso de "sem NavMesh" ja mostrado (1x)
 
     void Start()
     {
         rb = GetComponent<Rigidbody2D>();
         anim = GetComponentInChildren<Animator>();
-        colisaoAplicada = IgnorarColisaoComJogador();
+        IgnorarColisaoComJogador();
+
+        // NavMesh: o controle do agente e nosso. Ele so liga quando o
+        // player manda o NPC pra algum lugar (assim nao briga com a fisica)
+        agente = GetComponent<NavMeshAgent>();
+        if (agente != null)
+        {
+            agente.updateRotation = false;  // o agente nao pode girar o sprite
+            agente.updateUpAxis = false;    // exigencia do NavMeshPlus (2D)
+            agente.enabled = false;
+        }
+
+        rotinaPatrulha = StartCoroutine(setpatrolpoint());
     }
 
     void Update()
@@ -78,50 +97,173 @@ public class garson : MonoBehaviour
         // Escolhe o controller pela tag do GameObject e aplica os status.
         AplicarController();
 
-        // Se a colisao com o jogador ainda nao foi ignorada (ex.: o player
-        // so apareceu/depois foi ativado), tenta de novo de vez em quando.
-        if (!colisaoAplicada)
-        {
-            cronometroColisao -= Time.unscaledDeltaTime;
-            if (cronometroColisao <= 0f)
-            {
-                cronometroColisao = 1f;
-                colisaoAplicada = IgnorarColisaoComJogador();
-            }
-        }
-
-        // SEM ORDEM DO JOGADOR: fica em idle (parado no lugar). O NPC NAO
-        // vai pra nenhum ponto fixo - nao existe mais patrulha.
-        if (!sobControle)
+        if (inpause)
         {
             if (rb != null) rb.velocity = Vector2.zero;
-            if (!mostreiIdle)
-            {
-                mostreiIdle = true;
-                if (anim != null) anim.Play("idle");
-            }
-            return;
-        }
-
-        // COM ORDEM: caminha ate o destino escolhido pelo player
-        if (Vector2.Distance(transform.position, target) < toleranciaParada)
-        {
-            // Chegou no local mandado: para, sinaliza (chegou) e espera a tarefa
-            chegou = true;
-            if (rb != null) rb.velocity = Vector2.zero;
-            if (!mostreiIdle)
-            {
-                mostreiIdle = true;
-                if (anim != null) anim.Play("idle");
-            }
+            DesativarAgente();
             return;
         }
 
         Vector2 Direction = ((Vector3)target - transform.position).normalized;
-        if (Direction.x < 0 && transform.localScale.x > 0 || Direction.x > 0 && transform.localScale.x < 0)
-            transform.localScale = new Vector3(transform.localScale.x * -1, transform.localScale.y, transform.localScale.z);
 
-        if (rb != null) rb.velocity = Direction * velocidade;
+        // Com ordem do player, tenta ir pelo NavMesh (contornando os
+        // obstaculos). Se nao der, cai no movimento reto de sempre.
+        usandoNavMesh = sobControle && MoverPorNavMesh();
+
+        if (usandoNavMesh)
+        {
+            // Quem move o NPC agora e o NavMeshAgent
+            if (rb != null) rb.velocity = Vector2.zero;
+            VirarSprite(agente.velocity.sqrMagnitude > 0.001f ? agente.velocity.x : Direction.x);
+        }
+        else
+        {
+            VirarSprite(Direction.x);
+            if (rb != null) rb.velocity = Direction * velocidade;
+        }
+
+        // Chegou: perto o bastante OU o agente terminou o caminho dele
+        // (o destino pode ter sido arrumado pro NavMesh mais proximo)
+        bool chegouNoDestino = Vector2.Distance(transform.position, target) < toleranciaParada
+            || (usandoNavMesh && agente.hasPath && !agente.pathPending && agente.remainingDistance <= 0.05f);
+
+        if (chegouNoDestino)
+        {
+            if (sobControle)
+            {
+                // Chegou no local mandado pelo player: para e sinaliza
+                chegou = true;
+                inpause = true;
+                if (rb != null) rb.velocity = Vector2.zero;
+                DesativarAgente();
+                if (anim != null) anim.Play("idle");
+            }
+            else
+            {
+                rotinaPatrulha = StartCoroutine(setpatrolpoint());
+            }
+        }
+    }
+
+    // ===============================================================
+    //  SPRITE - vira o sprite pra direcao que esta andando
+    // ===============================================================
+    private void VirarSprite(float eixoX)
+    {
+        if (eixoX < 0 && transform.localScale.x > 0 || eixoX > 0 && transform.localScale.x < 0)
+            transform.localScale = new Vector3(transform.localScale.x * -1, transform.localScale.y, transform.localScale.z);
+    }
+
+    // ===============================================================
+    //  NAVMESH - o NPC vai pros pontos marcados pelo player pelo
+    //  NavMesh (NavMech2D + NavMeshPlus), contornando os obstaculos.
+    //  Se nao tiver NavMesh pronto, tudo cai no movimento reto de
+    //  sempre, entao o jogo continua igual mesmo antes do Bake.
+    // ===============================================================
+
+    // Liga o agente e cola ele no NavMesh. Retorna false se nao der
+    // (sem componente, NavMesh desligado ou NPC fora do NavMesh).
+    private bool AtivarAgente()
+    {
+        if (agente == null)
+        {
+            agente = GetComponent<NavMeshAgent>();
+            if (agente == null) return false;
+            agente.updateRotation = false;
+            agente.updateUpAxis = false;
+        }
+
+        if (!usarNavMesh)
+        {
+            DesativarAgente(); // desliga o agente se ainda estiver ligado
+            return false;
+        }
+
+        agente.enabled = true;
+
+        if (!agente.isOnNavMesh)
+        {
+            // Cola no NavMesh mais perto (serve pra quem nasceu um pouco fora)
+            if (!(NavMesh.SamplePosition(transform.position, out NavMeshHit perto, 3f, NavMesh.AllAreas)
+                  && agente.Warp(perto.position)))
+            {
+                AvisoNav();
+                agente.enabled = false;
+                return false;
+            }
+        }
+
+        agente.speed = Mathf.Max(0f, velocidade);
+        return true;
+    }
+
+    // Desliga o agente e devolve o controle pro movimento reto.
+    private void DesativarAgente()
+    {
+        destinoNavPendente = false;
+        if (agente != null && agente.enabled) agente.enabled = false;
+    }
+
+    // Aviso unico no console quando o NavMesh nao esta disponivel
+    // (sem encher o log de repeticao).
+    private void AvisoNav()
+    {
+        if (avisoNavDado) return;
+        avisoNavDado = true;
+        Debug.LogWarning("[garson] NavMesh indisponivel - usando movimento reto. Confira se o 'NavMech2D' tem o componente 'Navigation CollectSources2d' e se voce clicou em Bake nele.", this);
+    }
+
+    // Tenta levar o NPC pro target pelo NavMesh. Retorna false quando nao
+    // da pra usar (sem NavMesh / sem caminho) - ai quem anda la no Update
+    // e o movimento reto de sempre.
+    private bool MoverPorNavMesh()
+    {
+        if (!usarNavMesh || agente == null || !agente.enabled) return false;
+
+        if (!agente.isOnNavMesh)
+        {
+            // Saiu (ou nunca colou) no NavMesh: nao insiste
+            AvisoNav();
+            DesativarAgente();
+            return false;
+        }
+
+        agente.speed = Mathf.Max(0f, velocidade);
+
+        // Manda o destino so quando ele mudou (ordem nova do player)
+        if (destinoNavPendente || target != ultimoDestinoNav)
+        {
+            destinoNavPendente = false;
+            ultimoDestinoNav = target;
+
+            if (!NavMesh.SamplePosition(target, out NavMeshHit perto, 5f, NavMesh.AllAreas))
+            {
+                // Nenhum NavMesh perto do ponto pedido
+                AvisoNav();
+                DesativarAgente();
+                return false;
+            }
+
+            Vector3 alvo = perto.position;
+
+            // Bug conhecido do NavMeshAgent: ele trava quando o caminho
+            // e reto em Y (X identico ao do destino). Arrasta 0.0001 pro
+            // lado pra nunca acontecer.
+            if (Mathf.Abs(alvo.x - transform.position.x) < 0.0001f)
+                alvo.x += 0.0001f;
+
+            if (agente.isStopped) agente.isStopped = false;
+
+            if (!agente.SetDestination(alvo))
+            {
+                DesativarAgente();
+                return false;
+            }
+        }
+
+        // Caminho valido ou ainda calculando = da pra usar;
+        // terminou sem caminho = devolve pro movimento reto
+        return agente.hasPath || agente.pathPending;
     }
 
     // ===============================================================
@@ -129,19 +271,16 @@ public class garson : MonoBehaviour
     //  O colisor do NPC continua valendo contra o mundo (parede, banca,
     //  barreira); so o jogador que ignora ele.
     // ===============================================================
-    // Retorna true quando nao ha mais nada a ignorar; false se o player ainda
-    // nao existe (ai o Update tenta de novo daqui a 1s).
-    private bool IgnorarColisaoComJogador()
+    private void IgnorarColisaoComJogador()
     {
-        if (!jogadorAtravessa) return true;   // desligado no Inspector: nada a fazer
+        if (!jogadorAtravessa) return;
 
         Controlapersonagem controle = FindAnyObjectByType<Controlapersonagem>();
-        if (controle == null) return false;   // player ainda nao existe/ta inativo
+        if (controle == null) return;
 
         Collider2D[] meusColisores = GetComponentsInChildren<Collider2D>();
         Collider2D[] colisoresJogador = controle.GetComponentsInChildren<Collider2D>();
-        if (meusColisores.Length == 0 || colisoresJogador.Length == 0)
-            return true;                      // sem colisores = nao ha bloqueio
+        if (meusColisores.Length == 0 || colisoresJogador.Length == 0) return;
 
         foreach (Collider2D meu in meusColisores)
         {
@@ -150,8 +289,6 @@ public class garson : MonoBehaviour
                 Physics2D.IgnoreCollision(doJogador, meu, true);
             }
         }
-
-        return true;
     }
 
     // ===============================================================
@@ -230,26 +367,60 @@ public class garson : MonoBehaviour
     }
 
     // ===============================================================
+    //  Patrulha
+    // ===============================================================
+    IEnumerator setpatrolpoint()
+    {
+        if (patrolpoint == null || patrolpoint.Length == 0)
+        {
+            // Sem pontos de patrulha: fica parado onde esta
+            // (sem isso o NPC andaria reto ate a origem do mundo)
+            inpause = true;
+            if (anim != null) anim.Play("idle");
+            yield break;
+        }
+
+        inpause = true;
+        if (anim != null) anim.Play("idle");
+
+        yield return new WaitForSeconds(pausa);
+
+        currentPatrolIndex = (currentPatrolIndex + 1) % patrolpoint.Length;
+        target = patrolpoint[currentPatrolIndex];
+        inpause = false;
+
+        if (anim != null) anim.Play("Walk");
+    }
+
+    // ===============================================================
     //  MANDADO PELO PLAYER (tela de gerenciamento)
     // ===============================================================
     public void MandarPara(Vector2 destino)
     {
-        // So este destino vale: ele NAO volta pra rota/patrulha nenhuma
+        // Corta a pausa/atual da patrulha e comeca a ir pro destino
+        if (rotinaPatrulha != null)
+        {
+            StopCoroutine(rotinaPatrulha);
+            rotinaPatrulha = null;
+        }
+
         sobControle = true;
         chegou = false;
         target = destino;
-        mostreiIdle = false;              // deixa tocar a anim de andar
-        if (rb != null) rb.velocity = Vector2.zero;
+        inpause = false;
         if (anim != null) anim.Play("Walk");
+
+        // Tenta ir pelo NavMesh; se nao der, o Update faz o movimento reto
+        destinoNavPendente = AtivarAgente();
     }
 
-    // Sem ordem nenhuma: NPC volta pro idle (parado, nao vai pra lugar nenhum)
+    // Volta a andar na rota normal (patrulha)
     public void VoltarParaIdle()
     {
         sobControle = false;
         chegou = false;
-        mostreiIdle = false;              // toca o idle de novo uma vez
-        if (rb != null) rb.velocity = Vector2.zero;
+        DesativarAgente(); // volta pro movimento reto (patrulha)
+        rotinaPatrulha = StartCoroutine(setpatrolpoint());
     }
 
     public void fazerTarefas(string statusTarefa)
@@ -263,11 +434,7 @@ public class garson : MonoBehaviour
             case "paladar": Starefa = status.paladar; break;
             case "velocidadeDeCorte": Starefa = status.velocidadeDeCorte; break;
             case "grelha": Starefa = status.grelha; break;
-            default:
-                Starefa = 0f;
-                Debug.LogWarning("[NPC] fazerTarefas: status desconhecido '" + statusTarefa +
-                    "' - use: equilibrio, manusear, velocidadeDeMovimento, paladar, velocidadeDeCorte ou grelha.");
-                break;
+            default: Starefa = 0f; break;
         }
 
         float resultado = UnityEngine.Random.Range(0f, 10f);
