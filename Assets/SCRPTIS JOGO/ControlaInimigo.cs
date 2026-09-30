@@ -1,6 +1,5 @@
 using System.Collections;
 using System.Collections.Generic;
-using Unity.VisualScripting;
 using UnityEngine;
 
 public class ControlaInimigo : MonoBehaviour
@@ -9,13 +8,13 @@ public class ControlaInimigo : MonoBehaviour
     public float velocidade = 5f;
     private SpriteRenderer Sp;
 
-    [Header("Configurações de Delay")]
+    [Header("ConfiguraÃ§Ãµes de Delay")]
     public float intervaloAtualizacao = 1.0f;
     private float cronometro;
     private Vector3 direcaoAtual;
     private Animator animator;
     private Vector3 Escala = new Vector3(1, 1, 1);
-    private Controlapersonagem Controlapersonagem;
+    private Controlapersonagem controlaPersonagem;
     public bool TaAtacando = false;
     public float CronometroAtaque;
     public float CooldownAtaque;
@@ -23,7 +22,7 @@ public class ControlaInimigo : MonoBehaviour
 
     private void Start()
     {
-        Controlapersonagem = FindAnyObjectByType<Controlapersonagem>();
+        controlaPersonagem = FindFirstObjectByType<Controlapersonagem>();
         Sp = this.GetComponent<SpriteRenderer>();
         animator = GetComponent<Animator>();
     }
@@ -48,11 +47,11 @@ public class ControlaInimigo : MonoBehaviour
         if (TaAtacando == false)
         {
             transform.Translate(direcaoAtual * velocidade * Time.deltaTime, Space.World);
-            if (!animator.GetBool("1_Move")) animator.SetBool("1_Move", true);
+            if (animator != null && !animator.GetBool("1_Move")) animator.SetBool("1_Move", true);
         }
         else
         {
-            if (animator.GetBool("1_Move")) animator.SetBool("1_Move", false);
+            if (animator != null && animator.GetBool("1_Move")) animator.SetBool("1_Move", false);
         }
 
         float direcaoRelativa = alvo.position.x - transform.position.x;
@@ -64,23 +63,24 @@ public class ControlaInimigo : MonoBehaviour
     {
         if (other.gameObject.CompareTag("Player") && CronometroAtaque <= 0)
         {
-            CronometroAtaque = (CooldownAtaque * 0) + CooldownAtaque;
+            CronometroAtaque = CooldownAtaque;
             TaAtacando = true;
             StartCoroutine(AtaqueInimigo());
 
             var scriptPlayer = other.GetComponentInParent<Controlapersonagem>();
+            if (scriptPlayer == null) scriptPlayer = other.GetComponent<Controlapersonagem>();
             if (scriptPlayer != null)
             {
-                scriptPlayer.StartCoroutine("FoiAcertado");
+                scriptPlayer.StartCoroutine(scriptPlayer.FoiAcertado());
             }
         }
     }
 
     private IEnumerator AtaqueInimigo()
     {
+        if (animator != null) animator.SetTrigger("AxelAttack_1");
+        yield return new WaitForSeconds(0.5f);
         TaAtacando = false;
-        animator.SetTrigger("AxelAttack_1");
-       yield return new WaitForSeconds(0.5f);
 
     }
 }
