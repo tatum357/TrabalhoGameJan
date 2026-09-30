@@ -6,7 +6,7 @@ using UnityEngine;
 public class Controlapersonagem : MonoBehaviour
 {
     private Animator Anim;
-    [SerializeField] private int Velocidade = 0;
+    [SerializeField] private float Velocidade = 5f;
     [SerializeField] private Rigidbody2D rb;
     public Transform Tran;
     private Vector3 Escala = new Vector3(1,1,1);
@@ -19,15 +19,15 @@ public class Controlapersonagem : MonoBehaviour
     public bool PtaParado = true;
     private BoxCollider2D Bc;
     //private int Vidas = 3;
-    private ControlaInimigo ControlaInimigo;
-    private SistemaControl Teleporte;
+    private ControlaInimigo controlaInimigo;
 
     void Start()
     {
         Anim = GetComponent<Animator>();
         Bc = GetComponent<BoxCollider2D>();
-        ControlaInimigo = FindAnyObjectByType<ControlaInimigo>();
-        Teleporte = FindAnyObjectByType<SistemaControl>();
+        if (Tran == null) Tran = transform;
+        // Unity 2022: FindFirstObjectByType e o metodo recomendado
+        controlaInimigo = FindFirstObjectByType<ControlaInimigo>();
     }
 
     // Update is called once per frame
@@ -54,21 +54,28 @@ public class Controlapersonagem : MonoBehaviour
     {
         moveX = Input.GetAxisRaw("Horizontal");
         float moveY = Input.GetAxisRaw("Vertical");
+        bool emMovimento = moveX != 0 || moveY != 0;
         if (moveX != 0)
         {
-            Escala = new Vector3(2.5F * -moveX, 2.5F, 3);
-            Anim.SetBool("1_Move", true);
-            PtaParado = false;
+            Escala = new Vector3(2.5F * -Mathf.Sign(moveX), 2.5F, 1);
         }
         else
         {
-            Escala = new Vector3(2.5F, 2.5F, 3);
-            Anim.SetBool("1_Move", false);
-            PtaParado = true;
+            Escala = new Vector3(2.5F, 2.5F, 1);
         }
-        Tran.localScale = Escala;
+        if (Anim != null) Anim.SetBool("1_Move", emMovimento);
+        PtaParado = !emMovimento;
+        if (Tran != null) Tran.localScale = Escala;
         Vector3 direcao = new Vector3(moveX, moveY, 0f).normalized;
         transform.Translate(direcao * Velocidade * Time.deltaTime, Space.World);
+    }
+
+    public IEnumerator FoiAcertado()
+    {
+        if (Bc != null) Bc.enabled = false;
+        if (Anim != null) Anim.SetTrigger("3_Damaged");
+        yield return new WaitForSeconds(0.4f);
+        if (Bc != null) Bc.enabled = true;
     }
 
     /*private void OnTriggerEnter2D(Collider2D other)
@@ -88,7 +95,7 @@ public class Controlapersonagem : MonoBehaviour
     private IEnumerator Ataque()
     {
         canAttack = false;
-        int velocidadeOriginal = Velocidade;
+        float velocidadeOriginal = Velocidade;
         Velocidade = 1; 
         Anim.SetTrigger("2_Attack");
         yield return new WaitForSeconds(0.5f);
@@ -97,7 +104,8 @@ public class Controlapersonagem : MonoBehaviour
         canAttack = true;
     }
 
-    public IEnumerator FoiAcertado()
+    // FoiAcertado ativo movido para fora do bloco comentado (versao com null-checks).
+    /*public IEnumerator FoiAcertado_Legado()
     {
         Bc.enabled = false;
         Vidas--;
