@@ -12,6 +12,7 @@ TagManager:
   - chefe
   - faxineiro
   - garçon
+  - cliente
   layers:
   - Default
   - TransparentFX

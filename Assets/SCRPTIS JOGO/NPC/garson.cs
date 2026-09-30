@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using UnityEngine;
 using System.Collections.Generic;
@@ -42,6 +42,7 @@ public class garson : MonoBehaviour
     private const string TAG_FAXINEIRO = "faxineiro";
     private const string TAG_GARCON = "gar\u00E7on"; // "garçon" (escape p/ nao depender do encoding do arquivo)
     private const string TAG_GARCON_ALT = "garcom"; // alternativa sem cedilha
+    private const string TAG_CLIENTE = "cliente";   // so a parte de cliente vale pra ele
 
     // Distancia minima para considerar que chegou no ponto da patrulha.
     // So o GarconControler mexe nisso (equilibrio).
@@ -73,11 +74,34 @@ public class garson : MonoBehaviour
     private Vector2 ultimoDestinoNav;
     private bool avisoNavDado;        // aviso de "sem NavMesh" ja mostrado (1x)
 
+    // ===============================================================
+    //  CLIENTE - tag "cliente"
+    //  NPC com essa tag so tem acesso a PARTE DE CLIENTE (la embaixo):
+    //  sorteia cadeira e manda pedido. Nao entra na equipe nem faz tarefas.
+    // ===============================================================
+    [Header("Cliente (so vale com a tag 'cliente')")]
+    [Tooltip("Menor numero de pedido sorteado por este cliente")]
+    public int pedidoMinimo = 1;
+    [Tooltip("Maior numero de pedido sorteado por este cliente (padrao 1 a 10)")]
+    public int pedidoMaximo = 10;
+    [Tooltip("true = cliente esta sentado na cadeira agora (vira false quando ele sai)")]
+    public bool sentado = false;
+    [Tooltip("Segundos sentado antes de levantar e sair da cadeira (0 = nunca sai). Enquanto estiver, ela fica bloqueada pros outros.")]
+    public float tempoSentado = 15f;
+
+    // Lido direto da tag (vale ate pra script que roda antes da Start)
+    public bool ehCliente { get { return gameObject.tag == TAG_CLIENTE; } }
+
+    private Coroutine rotinaCliente;   // rotina so do cliente (cadeira + pedido)
+    private Transform cadeiraSentado;  // cadeira ocupada por este cliente
+    private Vector2 posInicio;         // onde nasceu (pra voltar ao sair)
+
     void Start()
     {
         rb = GetComponent<Rigidbody2D>();
         anim = GetComponentInChildren<Animator>();
         IgnorarColisaoComJogador();
+        posInicio = transform.position; // onde nasceu (pra voltar quando sair da cadeira)
 
         // NavMesh: o controle do agente e nosso. Ele so liga quando o
         // player manda o NPC pra algum lugar (assim nao briga com a fisica)
@@ -89,7 +113,12 @@ public class garson : MonoBehaviour
             agente.enabled = false;
         }
 
-        rotinaPatrulha = StartCoroutine(setpatrolpoint());
+        // Cliente (tag "cliente") nao faz a patrulha da equipe:
+        // roda a rotina dele - escolher cadeira e mandar o pedido.
+        if (ehCliente)
+            rotinaCliente = StartCoroutine(RotinaCliente());
+        else
+            rotinaPatrulha = StartCoroutine(setpatrolpoint());
     }
 
     void Update()
@@ -307,6 +336,8 @@ public class garson : MonoBehaviour
             FaxineiroControler();
         else if (tag == TAG_GARCON || tag == TAG_GARCON_ALT)
             GarconControler();
+        else if (tag == TAG_CLIENTE)
+            ClienteControler();
     }
 
     // ===============================================================
@@ -364,6 +395,109 @@ public class garson : MonoBehaviour
 
         // Manusear: tempo parado servindo a mesa
         pausa = Mathf.Max(0.10f, status.manusear * 0.15f);
+    }
+
+    // ===============================================================
+    //  CLIENTE  -  tag "cliente"  (PARTE SO DELE)
+    //  Usa: velocidade de movimento (ate a cadeira sorteada)
+    // ===============================================================
+    public void ClienteControler()
+    {
+        // So anda ate a cadeira que ele mesmo sorteou
+        velocidade = Mathf.Max(0f, status.velocidadeDeMovimento);
+    }
+
+    // ===============================================================
+    //  ROTINA DO CLIENTE: escolhe cadeira e manda o pedido
+    //  (so roda se a tag for "cliente"; nenhum outro papel entra aqui)
+    // ===============================================================
+    private IEnumerator RotinaCliente()
+    {
+        ControleCozinha cozinha = ControleCozinha.Obter();
+
+        // 1) sorteia um grupo de cadeiras (array no ControleCozinha),
+        //    depois UM ponto dentro dele, e senta la (o mesmo
+        //    MandarPara de sempre, usando NavMesh se tiver)
+        Transform ponto = cozinha.SortearCadeira();
+        if (ponto != null)
+        {
+            // ocupa a cadeira JA (antes de andar): outro NPC nao
+            // pode escolher essa mesma enquanto ele caminha ate la
+            cadeiraSentado = ponto;
+            cozinha.Reservar(ponto);
+
+            MandarPara(ponto.position);
+
+            // espera chegar (limite de seguranca pra nao travar pra sempre)
+            float espera = 0f;
+            while (!chegou && espera < 30f)
+            {
+                espera += Time.deltaTime;
+                yield return null;
+            }
+
+            chegou = false;
+            sentado = true;
+            inpause = true; // fica parado em pe na cadeira
+            if (rb != null) rb.velocity = Vector2.zero;
+            if (anim != null) anim.Play("idle");
+        }
+        else
+        {
+            // Sem cadeira definida: para onde esta e ja manda o pedido
+            inpause = true;
+            if (anim != null) anim.Play("idle");
+        }
+
+        // 2) sorteia o numero do pedido e manda pra cozinha
+        MandarPedido();
+
+        // 3) fica sentado o tempo definido e depois sai da cadeira
+        //    (libera pra outro NPC sentar)
+        if (tempoSentado > 0f && cadeiraSentado != null)
+        {
+            yield return new WaitForSeconds(tempoSentado);
+            yield return SairDaCadeira();
+        }
+    }
+
+    // Levanta, libera a cadeira (desliga o bloqueio NavMesh) e volta
+    // pro ponto onde comecou. So a parte de cliente faz.
+    private IEnumerator SairDaCadeira()
+    {
+        if (cadeiraSentado == null) yield break;
+
+        ControleCozinha cozinha = ControleCozinha.Obter();
+        cozinha.Liberar(cadeiraSentado);
+        cadeiraSentado = null;
+        sentado = false;
+        inpause = false;
+
+        // volta pra onde comecou (a entrada) - NavMesh se tiver
+        MandarPara(posInicio);
+        float espera = 0f;
+        while (!chegou && espera < 30f)
+        {
+            espera += Time.deltaTime;
+            yield return null;
+        }
+        chegou = false;
+        inpause = true;
+        if (anim != null) anim.Play("idle");
+    }
+
+    // Sorteia o numero do pedido (pedidoMinimo..pedidoMaximo, padrao
+    // 1 a 10) e manda pra ControleCozinha - que compara com o numero
+    // dos pratos e mostra o icone na tela. So a parte de cliente faz.
+    public void MandarPedido()
+    {
+        if (!ehCliente) return; // sem a tag "cliente" nao manda pedido
+
+        int min = Mathf.Min(pedidoMinimo, pedidoMaximo);
+        int max = Mathf.Max(pedidoMinimo, pedidoMaximo);
+        int numero = UnityEngine.Random.Range(min, max + 1); // maximo incluido
+
+        ControleCozinha.Obter().ReceberPedido(numero);
     }
 
     // ===============================================================
@@ -425,6 +559,15 @@ public class garson : MonoBehaviour
 
     public void fazerTarefas(string statusTarefa)
     {
+        // Cliente (tag "cliente") nao tem acesso as tarefas dos outros
+        // papeis - a parte dele e so cadeira + pedido.
+        if (ehCliente)
+        {
+            Starefa = 0f;
+            DeuCerto = false;
+            return;
+        }
+
         // 1) Switch no inicio: compara com os status
         switch (statusTarefa)
         {

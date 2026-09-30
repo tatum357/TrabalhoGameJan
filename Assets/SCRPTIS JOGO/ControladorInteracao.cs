@@ -151,6 +151,7 @@ public class ControladorInteracao : MonoBehaviour
         foreach (garson npc in FindObjectsByType<garson>(FindObjectsSortMode.None))
         {
             if (npc == null) continue;
+            if (npc.ehCliente) continue; // cliente so faz a parte dele
 
             GameObject objeto = EncontrarObjetoPerto(npc.transform.position);
             npcProximo.TryGetValue(npc, out GameObject anterior);
@@ -202,6 +203,13 @@ public class ControladorInteracao : MonoBehaviour
         if (npc == null)
         {
             Debug.LogWarning("[Interacao] InteragirNPC chamado sem NPC.");
+            DeuCertoNPC = false;
+            return false;
+        }
+
+        // Cliente (tag "cliente") nao faz tarefa de equipe
+        if (npc.ehCliente)
+        {
             DeuCertoNPC = false;
             return false;
         }

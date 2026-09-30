@@ -113,6 +113,7 @@ public class GerenciadorTarefas : MonoBehaviour
         foreach (garson npc in equipe)
         {
             if (npc == null) continue;
+            if (npc.ehCliente) continue; // cliente nao entra na equipe
 
             Button botao = Instantiate(modeloBotaoNPC, conteinerNPCs);
             botao.gameObject.SetActive(true);
@@ -152,6 +153,13 @@ public class GerenciadorTarefas : MonoBehaviour
     public void EnviarNPC(garson npc)
     {
         if (npc == null) return;
+
+        // Cliente (tag "cliente") nao recebe tarefas da equipe
+        if (npc.ehCliente)
+        {
+            Debug.LogWarning("[Gerenciamento] '" + npc.name + "' e cliente (tag 'cliente'): nao recebe tarefas da equipe.");
+            return;
+        }
 
         if (pontoSelecionado < 0)
         {
